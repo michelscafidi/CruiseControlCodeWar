@@ -11,8 +11,9 @@ namespace CruiseControl
     public class Commander
     {
         public BoardStatus _currentBoard;
-	    private List<VesselStatus> _myVessels; 
-
+	    private List<VesselStatus> _myVessels;
+	    private string[] _log = new string[50];
+	    private List<Coordinate> _SonarReport;
 
         public Commander()
         {
@@ -46,11 +47,13 @@ namespace CruiseControl
 				            (location.Y == _currentBoard.BoardMinCoordinate.Y || location.Y == _currentBoard.BoardMaxCoordinate.Y))
 				        {
 					        cmds.Add(new Command {vesselid = vessel.Id, action = "move:east"});
+					        _log[_log.Count()] = "left corners";
 				        }
 				        if (location.X == _currentBoard.BoardMaxCoordinate.X &&
 				            (location.Y == _currentBoard.BoardMinCoordinate.Y || location.Y == _currentBoard.BoardMaxCoordinate.Y))
 				        {
 					        cmds.Add(new Command {vesselid = vessel.Id, action = "move:west"});
+							_log[_log.Count()] = "right corners";
 				        }
 			        }
 		        }
@@ -59,7 +62,7 @@ namespace CruiseControl
 	        {
 				foreach (var vessel in _myVessels)
 				{
-						bool doneX = false, doneY = false;
+					bool doneX = false, doneY = false;
 					foreach (var location in vessel.Location)
 					{
 						if (!doneX)
@@ -68,11 +71,13 @@ namespace CruiseControl
 							{
 								cmds.Add(new Command {vesselid = vessel.Id, action = "move:east"});
 								doneX = true;
+								_log[_log.Count()] = "left edge";
 							}
 							if (location.X == _currentBoard.BoardMaxCoordinate.X)
 							{
 								cmds.Add(new Command { vesselid = vessel.Id, action = "move:west" });
 								doneX = true;
+								_log[_log.Count()] = "right edge";
 							}
 						}
 						if (!doneY)
@@ -81,11 +86,13 @@ namespace CruiseControl
 							{
 								cmds.Add(new Command { vesselid = vessel.Id, action = "move:south" });
 								doneY = true;
+								_log[_log.Count()] = "top edge";
 							}
 							if (location.Y == _currentBoard.BoardMaxCoordinate.Y)
 							{
 								cmds.Add(new Command { vesselid = vessel.Id, action = "move:north" });
 								doneY = true;
+								_log[_log.Count()] = "bottom edge";
 							}
 						}
 					}
@@ -99,14 +106,13 @@ namespace CruiseControl
 				if (!vessel.CounterMeasuresLoaded && vessel.CounterMeasures > 0)
 				{
 					cmds.Add(new Command { vesselid = vessel.Id, action = "load_countermeasures" });
+					_log[_log.Count()] = "deploy CM for " + vessel.Id;
 				}
 			}
 			#endregion
 
-
-
-			cmds.Add(new Command { vesselid = 1, action = "fire", coordinate = new Coordinate { X = 1, Y = 1 } });
-
+			//cmds.Add(new Command { vesselid = 1, action = "fire", coordinate = new Coordinate { X = 1, Y = 1 } });
+			System.IO.File.WriteAllLines(@"~\log.txt", _log);
             return cmds;
         }
 
@@ -119,8 +125,8 @@ namespace CruiseControl
         // This method runs at the start of a new game, do any initialization or resetting here 
         public void Reset()
         {
-
-
+			_currentBoard = new BoardStatus();
+			_myVessels.Clear();
         }
 
 	    private void ReorderVessels()
@@ -135,15 +141,63 @@ namespace CruiseControl
 
 	    private void ParseSonarReport()
 	    {
-		    var SonarReport = new List<Coordinate>();
+		    _SonarReport = new List<Coordinate>();
 		    foreach (var vessel in _myVessels)
 		    {
 			    foreach (var sonarCoordinate in vessel.SonarReport)
 			    {
-				    SonarReport.Add(sonarCoordinate);
+					if (_SonarReport.IndexOf(sonarCoordinate) > -1)
+						_SonarReport.Add(sonarCoordinate);
 			    }
+		    }
+			_SonarReport.Sort();
+		    RemoveSelfFromSonar();
+	    }
+
+	    private void RemoveSelfFromSonar()
+	    {
+			foreach (var vessel in _myVessels)
+			{
+				foreach (var location in vessel.Location)
+				{
+					if (_SonarReport.IndexOf(location) > -1)
+						_SonarReport.Remove(location);
+				}
+			}
+		    SortSonarCoordinates();
+	    }
+
+	    private void SortSonarCoordinates()
+	    {
+		    var listObjects=new List<List<Coordinate>>();
+			listObjects.Add(new List<Coordinate>());
+			listObjects[0].Add(_SonarReport[0]);
+		    foreach (var coord in _SonarReport)
+		    {
+			    var grouped = false;
+			    if (!grouped)
+			    {
+					foreach (var obj in listObjects)
+					{
+						if (isAdjacent(obj, coord))
+						{
+							obj.Add(coord);
+							grouped = true;
+						}
+					}
+			    }
+
 		    }
 	    }
 
+		private bool isAdjacent(List<Coordinate> obj, Coordinate coord )
+		{
+			foreach (var thing in obj)
+			{
+				if (thing.X == (coord.X + 1) || thing.X == (coord.X - 1) || thing.Y == (coord.Y + 1) || thing.Y == (coord.Y - 1))
+					return true;
+			}
+			return false;
+		}
     }
 }
