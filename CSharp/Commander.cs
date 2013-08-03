@@ -14,6 +14,7 @@ namespace CruiseControl
 	    private List<VesselStatus> _myVessels;
 	    private string[] _log = new string[50];
 	    private List<Coordinate> _SonarReport;
+	    private List<List<Coordinate>> _listObjects;
 
         public Commander()
         {
@@ -23,97 +24,108 @@ namespace CruiseControl
         // Do not alter/remove this method signature
         public List<Command> GiveCommands()
         {
-            var cmds = new List<Command>();
-			ReorderVessels();
-
-            // Add Commands Here.
-            // You can only give as many commands as you have un-sunk vessels. Powerup commands do not count against this number. 
-            // You are free to use as many powerup commands at any time. Any additional commands you give (past the number of active vessels) will be ignored.	       
-	        foreach (var vesselStatus in _currentBoard.MyVesselStatuses)
+		    var cmds = new List<Command>();
+	        try
 	        {
-		        _myVessels.Add(vesselStatus);
-	        }
-			var vesselCount = _myVessels.Count();
+		        ReorderVessels();
 
-			#region Dont fall off
-
-	        if (_currentBoard.TurnsUntilBoardShrink == 2)
-	        {
-		        foreach (var vessel in _myVessels)
+		        // Add Commands Here.
+		        // You can only give as many commands as you have un-sunk vessels. Powerup commands do not count against this number. 
+		        // You are free to use as many powerup commands at any time. Any additional commands you give (past the number of active vessels) will be ignored.	       
+		        foreach (var vesselStatus in _currentBoard.MyVesselStatuses)
 		        {
-			        foreach (var location in vessel.Location)
+			        _myVessels.Add(vesselStatus);
+		        }
+		        var vesselCount = _myVessels.Count();
+
+		        #region Dont fall off
+
+		        if (_currentBoard.TurnsUntilBoardShrink == 2)
+		        {
+			        foreach (var vessel in _myVessels)
 			        {
-				        if (location.X == _currentBoard.BoardMinCoordinate.X &&
-				            (location.Y == _currentBoard.BoardMinCoordinate.Y || location.Y == _currentBoard.BoardMaxCoordinate.Y))
+				        foreach (var location in vessel.Location)
 				        {
-					        cmds.Add(new Command {vesselid = vessel.Id, action = "move:east"});
-					        _log[_log.Count()] = "left corners";
-				        }
-				        if (location.X == _currentBoard.BoardMaxCoordinate.X &&
-				            (location.Y == _currentBoard.BoardMinCoordinate.Y || location.Y == _currentBoard.BoardMaxCoordinate.Y))
-				        {
-					        cmds.Add(new Command {vesselid = vessel.Id, action = "move:west"});
-							_log[_log.Count()] = "right corners";
+					        if (location.X == _currentBoard.BoardMinCoordinate.X &&
+					            (location.Y == _currentBoard.BoardMinCoordinate.Y || location.Y == _currentBoard.BoardMaxCoordinate.Y))
+					        {
+						        cmds.Add(new Command {vesselid = vessel.Id, action = "move:east"});
+						        _log[_log.Count()] = "left corners";
+					        }
+					        if (location.X == _currentBoard.BoardMaxCoordinate.X &&
+					            (location.Y == _currentBoard.BoardMinCoordinate.Y || location.Y == _currentBoard.BoardMaxCoordinate.Y))
+					        {
+						        cmds.Add(new Command {vesselid = vessel.Id, action = "move:west"});
+						        _log[_log.Count()] = "right corners";
+					        }
 				        }
 			        }
 		        }
+		        if (_currentBoard.TurnsUntilBoardShrink == 1)
+		        {
+			        foreach (var vessel in _myVessels)
+			        {
+				        bool doneX = false, doneY = false;
+				        foreach (var location in vessel.Location)
+				        {
+					        if (!doneX)
+					        {
+						        if (location.X == _currentBoard.BoardMinCoordinate.X)
+						        {
+							        cmds.Add(new Command {vesselid = vessel.Id, action = "move:east"});
+							        doneX = true;
+							        _log[_log.Count()] = "left edge";
+						        }
+						        if (location.X == _currentBoard.BoardMaxCoordinate.X)
+						        {
+							        cmds.Add(new Command {vesselid = vessel.Id, action = "move:west"});
+							        doneX = true;
+							        _log[_log.Count()] = "right edge";
+						        }
+					        }
+					        if (!doneY)
+					        {
+						        if (location.Y == _currentBoard.BoardMinCoordinate.Y)
+						        {
+							        cmds.Add(new Command {vesselid = vessel.Id, action = "move:south"});
+							        doneY = true;
+							        _log[_log.Count()] = "top edge";
+						        }
+						        if (location.Y == _currentBoard.BoardMaxCoordinate.Y)
+						        {
+							        cmds.Add(new Command {vesselid = vessel.Id, action = "move:north"});
+							        doneY = true;
+							        _log[_log.Count()] = "bottom edge";
+						        }
+					        }
+				        }
+			        }
+		        }
+
+		        #endregion
+
+		        #region Run counter measures
+
+		        foreach (var vessel in _myVessels)
+		        {
+			        if (!vessel.CounterMeasuresLoaded && vessel.CounterMeasures > 0)
+			        {
+				        cmds.Add(new Command {vesselid = vessel.Id, action = "load_countermeasures"});
+				        _log[_log.Count()] = "deploy CM for " + vessel.Id;
+			        }
+		        }
+
+		        #endregion
+
+		        ParseSonarReport();
+			    //cmds.Add(new Command { vesselid = 1, action = "fire", coordinate = new Coordinate { X = 1, Y = 1 } });
+			    System.IO.File.WriteAllLines(@"~\log.txt", _log);
 	        }
-	        if (_currentBoard.TurnsUntilBoardShrink == 1)
+	        catch(Exception exception)
 	        {
-				foreach (var vessel in _myVessels)
-				{
-					bool doneX = false, doneY = false;
-					foreach (var location in vessel.Location)
-					{
-						if (!doneX)
-						{
-							if (location.X == _currentBoard.BoardMinCoordinate.X)
-							{
-								cmds.Add(new Command {vesselid = vessel.Id, action = "move:east"});
-								doneX = true;
-								_log[_log.Count()] = "left edge";
-							}
-							if (location.X == _currentBoard.BoardMaxCoordinate.X)
-							{
-								cmds.Add(new Command { vesselid = vessel.Id, action = "move:west" });
-								doneX = true;
-								_log[_log.Count()] = "right edge";
-							}
-						}
-						if (!doneY)
-						{
-							if (location.Y == _currentBoard.BoardMinCoordinate.Y)
-							{
-								cmds.Add(new Command { vesselid = vessel.Id, action = "move:south" });
-								doneY = true;
-								_log[_log.Count()] = "top edge";
-							}
-							if (location.Y == _currentBoard.BoardMaxCoordinate.Y)
-							{
-								cmds.Add(new Command { vesselid = vessel.Id, action = "move:north" });
-								doneY = true;
-								_log[_log.Count()] = "bottom edge";
-							}
-						}
-					}
-				}
+		        Console.WriteLine(exception);
 	        }
-			#endregion
-
-			#region Run counter measures
-			foreach (var vessel in _myVessels)
-			{
-				if (!vessel.CounterMeasuresLoaded && vessel.CounterMeasures > 0)
-				{
-					cmds.Add(new Command { vesselid = vessel.Id, action = "load_countermeasures" });
-					_log[_log.Count()] = "deploy CM for " + vessel.Id;
-				}
-			}
-			#endregion
-
-			//cmds.Add(new Command { vesselid = 1, action = "fire", coordinate = new Coordinate { X = 1, Y = 1 } });
-			System.IO.File.WriteAllLines(@"~\log.txt", _log);
-            return cmds;
+	        return cmds;
         }
 
         // Do NOT modify or remove! This is where you will receive the new board status after each round.
@@ -169,15 +181,15 @@ namespace CruiseControl
 
 	    private void SortSonarCoordinates()
 	    {
-		    var listObjects=new List<List<Coordinate>>();
-			listObjects.Add(new List<Coordinate>());
-			listObjects[0].Add(_SonarReport[0]);
+		    _listObjects=new List<List<Coordinate>>();
+			_listObjects.Add(new List<Coordinate>());
+			_listObjects[0].Add(_SonarReport[0]);
 		    foreach (var coord in _SonarReport)
 		    {
 			    var grouped = false;
 			    if (!grouped)
 			    {
-					foreach (var obj in listObjects)
+					foreach (var obj in _listObjects)
 					{
 						if (isAdjacent(obj, coord))
 						{
@@ -186,7 +198,6 @@ namespace CruiseControl
 						}
 					}
 			    }
-
 		    }
 	    }
 
